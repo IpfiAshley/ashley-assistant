@@ -1,0 +1,11 @@
+# Rebuilt desktop app outputs
+/AshleyApp*/
+/StorePackage/
+
+# Local SDK, package caches, and build intermediates
+/work/
+/DesktopApp/bin/
+/DesktopApp/obj/
+/.vs/
+*.user
+*.suo
