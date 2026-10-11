@@ -234,10 +234,9 @@
     let recognitionRunning = false;
     let reconnectAttempts = 0;
     let shouldListen = false;
-    let activeUntil = 0;
+    let commandSessionActive = false;
     let speaking = false;
     let speechTurn = 0;
-    const sessionIdleMs = 30000;
     let restartTimer;
 
     function updateClock() {
@@ -273,6 +272,9 @@
       orb.classList.remove('speaking');
       if (shouldListen) {
         clearTimeout(restartTimer);
+        statusBox.textContent = commandSessionActive
+          ? 'Ashley is listening for commands. Say “stop listening” to end.'
+          : (speechMode === 'offline' ? 'Listening offline for “Hey Ashley”…' : `Listening online in ${recognition?.lang || 'English'} for “Hey Ashley”…`);
         if (speechMode === 'offline' && nativeAshley) window.chrome.webview.postMessage({ action: 'resumeListening' });
         else restartTimer = setTimeout(startRecognition, 500);
       }
@@ -312,13 +314,12 @@
         .replace(/\s+(please|for me)$/, '')
         .replace(/\s+/g, ' ').trim();
       if (!text) return;
-      activeUntil = Date.now() + sessionIdleMs;
       if (/^(?:(?:what(?:'s| is) )?(?:the )?time(?: is it)?(?: now)?|tell me (?:the )?(?:current )?time|what time is it|current time|time)$/.test(text)) {
         say(`It's ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`);
       } else if (/^(?:(?:what(?:'s| is) )?(?:the )?(?:date|day)(?: is it)?(?: today| now)?|tell me (?:the )?(?:current )?(?:date|day)|what day is it|what is today's date|today(?:'s| is the) date|current (?:date|day)|date|day)$/.test(text)) {
         say(new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
       } else if (/^(help|what can you do|what commands do you know|list commands|show commands|what can i ask you)$/.test(text)) {
-        say('I can tell you the time or date, search the web, open or close apps, open folders and websites, open Windows settings, and change or mute your volume.');
+        say('I can tell you the time or date, search the web, open or close apps, open folders and websites, open Windows settings, and change or mute your volume. I will keep listening until you say stop listening or press Stop.');
       } else {
         const closeApp = text.match(/^(?:close|quit|exit)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:app|application|browser))?$/);
         if (closeApp) { await localAction('closeApp', closeApp[1].trim()); return; }
@@ -384,6 +385,14 @@
       }
     }
 
+    function dispatchRecognizedCommand(command) {
+      if (/^\s*stop listening\s*[.!?]*\s*$/i.test(command)) {
+        stopButton.click();
+        return;
+      }
+      handleCommand(command).catch(error => say(error.message));
+    }
+
     function onTranscript(transcript, alternatives = []) {
       const heard = transcript.trim();
       if (!heard) return;
@@ -393,15 +402,15 @@
         .map(candidate => candidate.match(wakePattern))
         .find(Boolean);
       if (wake) {
+        commandSessionActive = true;
         const command = wake[2].trim().replace(/[.!?;:,]+$/g, '').trim();
-        if (command) handleCommand(command).catch(error => say(error.message));
+        if (command) dispatchRecognizedCommand(command);
         else {
-          activeUntil = Date.now() + sessionIdleMs;
-          statusBox.textContent = 'Ashley is ready. You can give commands for the next 30 seconds.';
+          statusBox.textContent = 'Ashley is ready. I’ll keep listening until you say “stop listening” or press Stop.';
         }
         return;
       }
-      if (Date.now() < activeUntil) handleCommand(heard).catch(error => say(error.message));
+      if (commandSessionActive) dispatchRecognizedCommand(heard);
     }
 
     function startRecognition() {
@@ -420,7 +429,11 @@
       recognition = new SpeechRecognition();
       recognition.lang = 'en-ZA'; recognition.continuous = true; recognition.interimResults = false; recognition.maxAlternatives = 3;
       if ('processLocally' in recognition) recognition.processLocally = false;
-      recognition.onstart = () => { statusBox.textContent = `Listening online in ${recognition.lang} for “Hey Ashley”…`; };
+      recognition.onstart = () => {
+        statusBox.textContent = commandSessionActive
+          ? 'Ashley is listening for commands. Say “stop listening” to end.'
+          : `Listening online in ${recognition.lang} for “Hey Ashley”…`;
+      };
       recognition.onresult = event => {
         reconnectAttempts = 0;
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -501,7 +514,7 @@
       beginListening();
     });
     stopButton.addEventListener('click', () => {
-      shouldListen = false; activeUntil = 0; clearTimeout(restartTimer);
+      shouldListen = false; commandSessionActive = false; clearTimeout(restartTimer);
       if (speechMode === 'offline' && nativeAshley) window.chrome.webview.postMessage({ action: 'stopListening' });
       else if (recognition && recognitionRunning) { try { recognition.stop(); } catch {} }
       recognitionRunning = false;

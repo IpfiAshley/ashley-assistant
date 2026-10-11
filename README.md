@@ -6,7 +6,7 @@ Ashley is a voice-controlled Windows desktop assistant prototype with a futurist
 
 - A desktop interface with two switchable HUD views.
 - Online English speech recognition by default, with an optional local English speech model.
-- The “Hey Ashley” wake phrase and a 30-second command window for follow-up requests.
+- The “Hey Ashley” wake phrase and unlimited follow-up commands until you say “stop listening” or press Stop.
 - Typed commands when speech is unavailable.
 - Native Windows actions for apps, folders, websites, settings, and volume.
 - Optional launch at Windows sign-in.
@@ -30,7 +30,7 @@ Speech recognition only turns speech into text. Ashley's commands are a defined 
 
 ## Commands
 
-Say “Hey Ashley,” followed by a command, or give follow-up commands during the next 30 seconds. Examples:
+Say “Hey Ashley,” followed by a command, then continue giving follow-up commands for as long as you like. Say “stop listening” or press Stop to end the listening session. Examples:
 
 - “What time is it?” / “Could you tell me the date?”
 - “Open Calculator,” “launch Spotify,” or “close Brave.”
