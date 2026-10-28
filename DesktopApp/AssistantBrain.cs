@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -11,7 +10,7 @@ namespace Ashley.Desktop;
 
 internal sealed class AssistantBrain
 {
-    private const string CredentialTarget = "Ashley.OpenAI.ApiKey";
+    internal const string CredentialTarget = "Ashley.Gemini.ApiKey";
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(45) };
     private const string ToolDefinitions = """
     [
@@ -34,16 +33,16 @@ internal sealed class AssistantBrain
     {
         var dialog = new Window
         {
-            Title = "Ashley AI setup", Owner = owner, Width = 460, Height = 300,
+            Title = "Ashley AI setup", Owner = owner, Width = 460, Height = 330,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize,
             Background = System.Windows.Media.Brushes.White, ShowInTaskbar = false
         };
         var stack = new StackPanel { Margin = new Thickness(22) };
-        stack.Children.Add(new TextBlock { Text = "Connect Ashley to OpenAI", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
-        stack.Children.Add(new TextBlock { Text = "Enter an OpenAI API key. API usage may be billed separately from ChatGPT. Ashley stores the key in Windows Credential Manager.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
+        stack.Children.Add(new TextBlock { Text = "Connect Ashley to Gemini", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
+        stack.Children.Add(new TextBlock { Text = "Get a Gemini API key from Google AI Studio. Free-tier limits vary, and Google may use free-tier content to improve its products. Avoid sending sensitive information. Ashley stores the key in Windows Credential Manager.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14) });
         var key = new PasswordBox { Height = 30, Padding = new Thickness(6), Password = CredentialStore.Read() ?? "" };
         stack.Children.Add(key);
-        var model = new TextBox { Text = "gpt-6-luna", Height = 30, Padding = new Thickness(6), Margin = new Thickness(0, 10, 0, 0), IsReadOnly = true };
+        var model = new TextBox { Text = "Gemini 3.8 Flash", Height = 30, Padding = new Thickness(6), Margin = new Thickness(0, 10, 0, 0), IsReadOnly = true };
         stack.Children.Add(model);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         var save = new Button { Content = "Save key", IsDefault = true, MinWidth = 90, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
@@ -52,9 +51,9 @@ internal sealed class AssistantBrain
         save.Click += (_, _) =>
         {
             var candidate = key.Password.Trim();
-            if (!candidate.StartsWith("sk-", StringComparison.Ordinal) || candidate.Length < 20)
+            if (candidate.Length < 20)
             {
-                MessageBox.Show(dialog, "That doesn't look like an OpenAI API key.", "Check the key", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(dialog, "That key looks too short. Copy the full Gemini API key from Google AI Studio.", "Check the key", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             CredentialStore.Write(candidate);
@@ -67,50 +66,79 @@ internal sealed class AssistantBrain
     public async Task<string> RespondAsync(string userText, Func<string, JsonElement, Task<string>> executeTool)
     {
         var apiKey = CredentialStore.Read();
-        if (string.IsNullOrWhiteSpace(apiKey)) throw new InvalidOperationException("Ashley AI is not connected yet. Open AI setup and add an OpenAI API key.");
+        if (string.IsNullOrWhiteSpace(apiKey)) throw new InvalidOperationException("Ashley AI is not connected yet. Open AI setup and add a Gemini API key.");
 
-        var input = new List<object> { new { role = "user", content = userText } };
-        var tools = JsonSerializer.Deserialize<JsonElement>(ToolDefinitions);
+        var contents = new List<object> { new { role = "user", parts = new[] { new { text = userText } } } };
+        using var toolDoc = JsonDocument.Parse(ToolDefinitions);
+        var declarations = toolDoc.RootElement.EnumerateArray().Select(tool => new
+        {
+            name = tool.GetProperty("name").GetString(),
+            description = tool.GetProperty("description").GetString(),
+            parameters = ToGeminiSchema(tool.GetProperty("parameters"))
+        }).ToArray();
         for (var turn = 0; turn < 4; turn++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent");
+            request.Headers.Add("x-goog-api-key", apiKey);
             request.Content = new StringContent(JsonSerializer.Serialize(new
             {
-                model = "gpt-6-luna",
-                store = false,
-                instructions = "You are Ashley, a helpful Windows laptop voice assistant. Use tools only for actions the user clearly asked for. Never claim an action succeeded unless its tool result says it did. Music opens YouTube Music search results; do not claim playback started. For destructive or sensitive tasks, explain that this version does not perform them. For ordinary questions, answer concisely and naturally for text to speech.",
-                input,
-                tools,
-                tool_choice = "auto"
+                systemInstruction = new { parts = new[] { new { text = "You are Ashley, a helpful Windows laptop voice assistant. Use tools only for actions the user clearly asked for. Never claim an action succeeded unless its tool result says it did. Music playback may require the user to finish in the browser. For destructive or sensitive tasks, explain that this version does not perform them. For ordinary questions, answer concisely and naturally for text to speech." } } },
+                contents,
+                tools = new[] { new { functionDeclarations = declarations } },
+                toolConfig = new { functionCallingConfig = new { mode = "AUTO" } }
             }), Encoding.UTF8, "application/json");
             using var response = await Client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
-                var detail = "The online AI service returned an error.";
+                var detail = "The Gemini API returned an error.";
                 try { detail = JsonDocument.Parse(body).RootElement.GetProperty("error").GetProperty("message").GetString() ?? detail; } catch { }
                 throw new InvalidOperationException(detail);
             }
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            var calls = root.GetProperty("output").EnumerateArray().Where(item => item.TryGetProperty("type", out var type) && type.GetString() == "function_call").ToArray();
-            if (calls.Length == 0)
+            if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+                throw new InvalidOperationException("Gemini returned no response. It may have blocked the request or reached a quota limit.");
+            var candidate = candidates[0];
+            if (!candidate.TryGetProperty("content", out var content) || !content.TryGetProperty("parts", out var parts))
+                throw new InvalidOperationException("Gemini returned an empty response.");
+            var functionParts = parts.EnumerateArray().Where(part => part.TryGetProperty("functionCall", out _)).ToArray();
+            var responseText = string.Join(" ", parts.EnumerateArray()
+                .Where(part => part.TryGetProperty("text", out _))
+                .Select(part => part.GetProperty("text").GetString())
+                .Where(text => !string.IsNullOrWhiteSpace(text))).Trim();
+            if (functionParts.Length == 0)
             {
-                var answer = root.TryGetProperty("output_text", out var outputText) ? outputText.GetString() : null;
-                return string.IsNullOrWhiteSpace(answer) ? "I couldn't form a response to that." : answer.Trim();
+                return string.IsNullOrWhiteSpace(responseText) ? "I couldn't form a response to that." : responseText;
             }
-            foreach (var call in calls)
+            contents.Add(content.Clone());
+            var functionResponses = new List<object>();
+            foreach (var part in functionParts)
             {
+                var call = part.GetProperty("functionCall");
                 var name = call.GetProperty("name").GetString() ?? "";
-                using var argsDoc = JsonDocument.Parse(call.GetProperty("arguments").GetString() ?? "{}");
-                var result = await executeTool(name, argsDoc.RootElement);
-                input.Add(new { type = "function_call", call_id = call.GetProperty("call_id").GetString(), name, arguments = call.GetProperty("arguments").GetString() });
-                input.Add(new { type = "function_call_output", call_id = call.GetProperty("call_id").GetString(), output = result });
+                var result = await executeTool(name, call.GetProperty("args"));
+                var callId = call.TryGetProperty("id", out var idValue) ? idValue.GetString() : null;
+                functionResponses.Add(new { functionResponse = new { name, response = new { result }, id = callId } });
             }
+            contents.Add(new { role = "user", parts = functionResponses });
         }
         return "I reached the limit for actions in one request. Please split that into a couple of commands.";
     }
+
+    private static object? ToGeminiSchema(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Object => element.EnumerateObject()
+            .Where(property => property.Name != "additionalProperties")
+            .ToDictionary(property => property.Name, property => ToGeminiSchema(property.Value)),
+        JsonValueKind.Array => element.EnumerateArray().Select(ToGeminiSchema).ToArray(),
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number when element.TryGetInt64(out var integer) => integer,
+        JsonValueKind.Number => element.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        _ => null
+    };
 }
 
 internal static class CredentialStore
@@ -131,7 +159,7 @@ internal static class CredentialStore
 
     public static string? Read()
     {
-        if (!CredRead("Ashley.OpenAI.ApiKey", Generic, 0, out var pointer)) return null;
+        if (!CredRead(AssistantBrain.CredentialTarget, Generic, 0, out var pointer)) return null;
         try
         {
             var credential = Marshal.PtrToStructure<NativeCredential>(pointer);
@@ -152,7 +180,7 @@ internal static class CredentialStore
             Marshal.Copy(bytes, 0, blob, bytes.Length);
             var credential = new NativeCredential
             {
-                Type = Generic, TargetName = "Ashley.OpenAI.ApiKey", CredentialBlob = blob,
+                Type = Generic, TargetName = AssistantBrain.CredentialTarget, CredentialBlob = blob,
                 CredentialBlobSize = (uint)bytes.Length, Persist = PersistLocalMachine, UserName = Environment.UserName
             };
             if (!CredWrite(ref credential, 0)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Windows could not save Ashley's AI key.");

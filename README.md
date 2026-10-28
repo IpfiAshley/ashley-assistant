@@ -8,7 +8,7 @@ Ashley is a voice-controlled Windows desktop assistant prototype with a futurist
 - Online English speech recognition by default, with an optional local English speech model.
 - The “Hey Ashley” wake phrase and unlimited follow-up commands until you say “stop listening” or press Stop.
 - YouTube Music search in the default browser, with a first-result playback attempt in an Ashley-controlled Brave, Edge, or Chrome profile when you name one.
-- Optional OpenAI command understanding and conversation, with a fixed set of validated desktop actions.
+- Optional Gemini command understanding and conversation, with a fixed set of validated desktop actions.
 - Typed commands when speech is unavailable.
 - Native Windows actions for apps, folders, websites, settings, and volume.
 - Optional launch at Windows sign-in.
@@ -28,7 +28,7 @@ The build creates `AshleyApp-HUD-Latest\Ashley.exe`. Once built, double-click th
 
 Ashley starts in **Online** speech mode. Online recognition needs internet access and sends microphone audio to Edge's speech service for transcription. Ashley requests English (South Africa) and falls back to English (US) if that service does not support it. Choose **Offline** in the HUD to use the bundled Vosk English model locally. The offline model is included in this repository; offline recognition itself does not send microphone audio online.
 
-Speech recognition turns speech into text. In the desktop app, commands that do not match a built-in phrase can be sent to OpenAI for intent recognition and conversation. Select **AI Setup** in the HUD and add an OpenAI API key; API use may be billed separately from ChatGPT. Ashley stores the key in Windows Credential Manager and sends command text to the OpenAI Responses API with response storage disabled. The microphone audio still uses the separate speech-recognition service selected in the HUD.
+Speech recognition turns speech into text. In the desktop app, commands that do not match a built-in phrase can be sent to Gemini for intent recognition and conversation. Select **AI Setup** in the HUD and add a Gemini API key from Google AI Studio. Ashley stores the key in Windows Credential Manager and uses the Gemini `generateContent` endpoint. Google's free-tier content-use policy may allow submitted content to improve its products, so do not send sensitive information. The microphone audio still uses the separate speech-recognition service selected in the HUD.
 
 ## Commands
 
@@ -51,7 +51,7 @@ Ashley can also answer ordinary questions, open/close apps, adjust volume, searc
 ## Project files
 
 - `DesktopApp\` contains the native Windows desktop app source.
-- `DesktopApp\AssistantBrain.cs` contains the online Responses API client and Windows Credential Manager storage.
+- `DesktopApp\AssistantBrain.cs` contains the Gemini API client and Windows Credential Manager storage.
 - `DesktopApp\BrowserMusicController.cs` handles the limited Chromium DevTools playback flow.
 - `DesktopApp\models\` contains the bundled offline Vosk model.
 - `Jarvis.html` contains the HUD and command recognition logic.
