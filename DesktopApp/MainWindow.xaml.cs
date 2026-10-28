@@ -159,6 +159,9 @@ public partial class MainWindow : Window
                 case "openWebsite" when !string.IsNullOrWhiteSpace(query):
                     OpenWebsite(query);
                     break;
+                case "playMusic":
+                    OpenMusic(query);
+                    break;
                 case "openSettings" when !string.IsNullOrWhiteSpace(query):
                     OpenWindowsSettings(query);
                     break;
@@ -231,6 +234,84 @@ public partial class MainWindow : Window
         }
 
         Process.Start(new ProcessStartInfo(uri.ToString()) { UseShellExecute = true });
+    }
+
+    private void OpenMusic(string serializedRequest)
+    {
+        try
+        {
+            using var request = JsonDocument.Parse(serializedRequest);
+            var root = request.RootElement;
+            var song = root.TryGetProperty("song", out var songValue) ? songValue.GetString()?.Trim() ?? "" : "";
+            var browser = root.TryGetProperty("browser", out var browserValue) && browserValue.ValueKind == JsonValueKind.String
+                ? browserValue.GetString()
+                : null;
+            if (song.Length > 300)
+                song = song[..300];
+
+            var url = song.Length == 0
+                ? "https://music.youtube.com/"
+                : $"https://music.youtube.com/search?q={Uri.EscapeDataString(song)}";
+
+            if (string.IsNullOrWhiteSpace(browser))
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                return;
+            }
+
+            var executable = FindBrowserExecutable(browser);
+            if (executable is null)
+            {
+                SendActionFeedback("actionError", $"I couldn't find {browser} installed on this laptop.");
+                return;
+            }
+
+            var start = new ProcessStartInfo(executable) { UseShellExecute = false };
+            start.ArgumentList.Add("--new-window");
+            start.ArgumentList.Add(url);
+            Process.Start(start);
+        }
+        catch (Exception error)
+        {
+            SendActionFeedback("actionError", $"I couldn't open YouTube Music: {error.Message}");
+        }
+    }
+
+    private static string? FindBrowserExecutable(string browser)
+    {
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var normalized = browser.Trim().ToLowerInvariant();
+        var candidates = normalized switch
+        {
+            "brave" or "brave browser" => new[]
+            {
+                Path.Combine(local, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                Path.Combine(programFiles, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                Path.Combine(programFilesX86, "BraveSoftware", "Brave-Browser", "Application", "brave.exe")
+            },
+            "edge" or "microsoft edge" => new[]
+            {
+                Path.Combine(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+                Path.Combine(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+                Path.Combine(local, "Microsoft", "Edge", "Application", "msedge.exe")
+            },
+            "chrome" or "google chrome" => new[]
+            {
+                Path.Combine(local, "Google", "Chrome", "Application", "chrome.exe"),
+                Path.Combine(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+                Path.Combine(programFilesX86, "Google", "Chrome", "Application", "chrome.exe")
+            },
+            "firefox" => new[]
+            {
+                Path.Combine(programFiles, "Mozilla Firefox", "firefox.exe"),
+                Path.Combine(programFilesX86, "Mozilla Firefox", "firefox.exe")
+            },
+            _ => Array.Empty<string>()
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private void OpenWindowsSettings(string page)

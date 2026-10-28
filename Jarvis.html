@@ -235,6 +235,7 @@
     let reconnectAttempts = 0;
     let shouldListen = false;
     let commandSessionActive = false;
+    let pendingMusicBrowser;
     let speaking = false;
     let speechTurn = 0;
     let restartTimer;
@@ -314,15 +315,61 @@
         .replace(/\s+(please|for me)$/, '')
         .replace(/\s+/g, ' ').trim();
       if (!text) return;
+      if (pendingMusicBrowser !== undefined) {
+        const browser = pendingMusicBrowser;
+        pendingMusicBrowser = undefined;
+        if (/^(cancel|never mind|nevermind|stop)$/i.test(text)) { say('Okay, cancelled.'); return; }
+        await localAction('playMusic', JSON.stringify({ song: text, browser }));
+        say(`Looking for ${text} on YouTube Music${browser ? ` in ${browser}` : ''}.`);
+        return;
+      }
       if (/^(?:(?:what(?:'s| is) )?(?:the )?time(?: is it)?(?: now)?|tell me (?:the )?(?:current )?time|what time is it|current time|time)$/.test(text)) {
         say(`It's ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`);
       } else if (/^(?:(?:what(?:'s| is) )?(?:the )?(?:date|day)(?: is it)?(?: today| now)?|tell me (?:the )?(?:current )?(?:date|day)|what day is it|what is today's date|today(?:'s| is the) date|current (?:date|day)|date|day)$/.test(text)) {
         say(new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
       } else if (/^(help|what can you do|what commands do you know|list commands|show commands|what can i ask you)$/.test(text)) {
-        say('I can tell you the time or date, search the web, open or close apps, open folders and websites, open Windows settings, and change or mute your volume. I will keep listening until you say stop listening or press Stop.');
+        say('I can tell you the time or date, play music or search for a song in YouTube Music, open or close apps, open folders and websites, open Windows settings, and change or mute your volume. I will keep listening until you say stop listening or press Stop.');
       } else {
         const closeApp = text.match(/^(?:close|quit|exit)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:app|application|browser))?$/);
         if (closeApp) { await localAction('closeApp', closeApp[1].trim()); return; }
+
+        const browserNamePattern = '(brave(?: browser)?|edge|microsoft edge|chrome|google chrome|firefox|browser)';
+        const browserFromName = name => /^(brave)/.test(name) ? 'Brave'
+          : /^(edge|microsoft edge)$/.test(name) ? 'Edge'
+          : /^(chrome|google chrome)$/.test(name) ? 'Chrome'
+          : name === 'firefox' ? 'Firefox' : null;
+        const musicApp = text.match(new RegExp(`^(?:play|start|open|launch)\\s+(?:(?:some|my|the)\\s+)?music(?:\\s+(?:on|in)\\s+(?:the\\s+)?${browserNamePattern})?$`));
+        const musicWithoutTitle = text.match(new RegExp(`^(?:play|put on|listen to)\\s+(?:(?:the|a|this)\\s+)?(?:song|music)(?:\\s+(?:on|in)\\s+(?:the|my)\\s+)?${browserNamePattern}?$`));
+        if (musicApp) {
+          const browser = musicApp[1] ? browserFromName(musicApp[1]) : null;
+          await localAction('playMusic', JSON.stringify({ song: '', browser }));
+          say(`Opening YouTube Music${browser ? ` in ${browser}` : ''}.`);
+          return;
+        }
+        if (musicWithoutTitle) {
+          pendingMusicBrowser = musicWithoutTitle[1] ? browserFromName(musicWithoutTitle[1]) : null;
+          say('Which song would you like to hear?');
+          return;
+        }
+        const songOnBrowser = text.match(new RegExp(`^(?:play|put on|listen to)\\s+(.+?)\\s+(?:on|in)\\s+(?:the\\s+)?${browserNamePattern}$`));
+        if (songOnBrowser) {
+          const browser = browserFromName(songOnBrowser[2]);
+          await localAction('playMusic', JSON.stringify({ song: songOnBrowser[1].trim(), browser }));
+          say(`Looking for ${songOnBrowser[1].trim()} on YouTube Music in ${browser}.`);
+          return;
+        }
+        const songRequest = text.match(/^(?:play|put on|listen to)\s+(?:the song\s+)?(.+)$/);
+        if (songRequest && !/^(music|a song|the song|something|a music)$/.test(songRequest[1])) {
+          const song = songRequest[1].trim();
+          await localAction('playMusic', JSON.stringify({ song, browser: null }));
+          say(`Looking for ${song} on YouTube Music in your default browser.`);
+          return;
+        }
+        if (/^(?:play|put on|listen to)(?:\s+(?:some|a|the))?$/.test(text)) {
+          pendingMusicBrowser = null;
+          say('Which song would you like to hear?');
+          return;
+        }
 
         const volume = text.match(/^(?:set (?:the )?volume(?: to)?|(?:turn|set) (?:the )?volume (?:to )?|volume (?:to )?)(\d{1,3}|zero|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|one hundred)(?: percent|%)?$/);
         const volumeWords = { zero: 0, ten: 10, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, 'one hundred': 100 };
@@ -514,7 +561,7 @@
       beginListening();
     });
     stopButton.addEventListener('click', () => {
-      shouldListen = false; commandSessionActive = false; clearTimeout(restartTimer);
+      shouldListen = false; commandSessionActive = false; pendingMusicBrowser = undefined; clearTimeout(restartTimer);
       if (speechMode === 'offline' && nativeAshley) window.chrome.webview.postMessage({ action: 'stopListening' });
       else if (recognition && recognitionRunning) { try { recognition.stop(); } catch {} }
       recognitionRunning = false;

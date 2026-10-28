@@ -17,7 +17,7 @@ $env:LOCALAPPDATA = Join-Path $PSScriptRoot 'work\appdata\local'
 New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
 $project = Join-Path $PSScriptRoot 'DesktopApp\Ashley.Desktop.csproj'
 $nugetConfig = Join-Path $PSScriptRoot 'DesktopApp\NuGet.Config'
-$publish = Join-Path $PSScriptRoot 'AshleyApp-HUD-Updated'
+$publish = Join-Path $PSScriptRoot 'AshleyApp-HUD-Latest'
 & $sdk restore $project --configfile $nugetConfig
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $sdk publish $project --no-restore --configuration Release --runtime win-x64 --self-contained false --output $publish
