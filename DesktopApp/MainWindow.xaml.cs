@@ -160,7 +160,14 @@ public partial class MainWindow : Window
                     OpenWebsite(query);
                     break;
                 case "playMusic":
-                    OpenMusic(query);
+                    await OpenMusicAsync(query);
+                    break;
+                case "aiCommand" when !string.IsNullOrWhiteSpace(query):
+                    await HandleAiCommandAsync(query);
+                    break;
+                case "aiSetup":
+                    if (AssistantBrain.Configure(this))
+                        SendActionFeedback("actionResult", "Online AI is connected. You can ask Ashley in your own words.");
                     break;
                 case "openSettings" when !string.IsNullOrWhiteSpace(query):
                     OpenWindowsSettings(query);
@@ -185,11 +192,110 @@ public partial class MainWindow : Window
         }
         catch (Exception error)
         {
-            MessageBox.Show(this, error.Message, "Ashley could not complete that action", MessageBoxButton.OK, MessageBoxImage.Warning);
+            SendActionFeedback("actionError", $"I couldn't complete that: {error.Message}");
         }
     }
 
-    private void OpenFolder(string requestedFolder)
+    private async Task HandleAiCommandAsync(string command)
+    {
+        if (!AssistantBrain.HasApiKey && !AssistantBrain.Configure(this))
+        {
+            SendActionFeedback("actionError", "Online AI is not connected yet. Use the AI setup button when you are ready.");
+            return;
+        }
+
+        SendStatus("Thinking online…");
+        var brain = new AssistantBrain();
+        var answer = await brain.RespondAsync(command, ExecuteAiToolAsync);
+        SendActionFeedback("actionResult", answer);
+    }
+
+    private async Task<string> ExecuteAiToolAsync(string name, JsonElement args)
+    {
+        string Arg(string key) => args.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()?.Trim() ?? "" : "";
+        switch (name)
+        {
+            case "open_app": return OpenInstalledApp(Arg("name"), report: false);
+            case "close_app": return CloseInstalledApp(Arg("name"), report: false);
+            case "set_volume": return SetVolume(Arg("value"), report: false);
+            case "play_music":
+                var song = Arg("song"); var browser = Arg("browser");
+                var request = JsonSerializer.Serialize(new { song, browser = browser.Equals("default", StringComparison.OrdinalIgnoreCase) ? null : browser });
+                return await OpenMusicAsync(request, report: false);
+            case "search_web":
+                var search = Arg("query");
+                if (search.Length is 0 or > 500) return "Search query is empty or too long.";
+                Process.Start(new ProcessStartInfo("https://www.google.com/search?q=" + Uri.EscapeDataString(search)) { UseShellExecute = true });
+                return $"Opened a web search for {search}.";
+            case "open_folder":
+                var folder = Arg("name"); return OpenFolder(folder, report: false);
+            case "open_settings":
+                var page = Arg("page"); return OpenWindowsSettings(page, report: false);
+            case "computer_status": return GetComputerStatus();
+            case "list_files": return ListStandardFolder(Arg("folder"), Arg("contains"));
+            case "read_text_file": return await ReadUserTextFileAsync(Arg("path"));
+            default: return "That action is not available to Ashley.";
+        }
+    }
+
+    private static string GetComputerStatus()
+    {
+        var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
+        var drive = new DriveInfo(Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))!);
+        var freeGb = Math.Round(drive.AvailableFreeSpace / 1024d / 1024 / 1024, 1);
+        var totalGb = Math.Round(drive.TotalSize / 1024d / 1024 / 1024, 1);
+        var physicalMemoryGb = Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024d / 1024 / 1024, 1);
+        return $"Uptime: {(int)uptime.TotalHours} hours {uptime.Minutes} minutes. C: free space: {freeGb} GB of {totalGb} GB. Installed memory: approximately {physicalMemoryGb} GB.";
+    }
+
+    private static string? GetStandardFolder(string name) => name.Trim().ToLowerInvariant() switch
+    {
+        "downloads" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
+        "documents" => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+        "desktop" => Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+        "pictures" => Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+        "music" => Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
+        "videos" => Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+        _ => null
+    };
+
+    private static string ListStandardFolder(string name, string contains)
+    {
+        var root = GetStandardFolder(name);
+        if (root is null || !Directory.Exists(root)) return "That standard folder is not available.";
+        try
+        {
+            var results = Directory.EnumerateFileSystemEntries(root)
+                .Select(Path.GetFileName)
+                .Where(item => item is not null && item.Contains(contains, StringComparison.OrdinalIgnoreCase))
+                .Take(40).ToArray();
+            return results.Length == 0 ? "No matching files or folders were found." : string.Join("; ", results);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return "Windows did not allow Ashley to list that folder."; }
+    }
+
+    private static async Task<string> ReadUserTextFileAsync(string candidate)
+    {
+        if (candidate.Length == 0 || candidate.Length > 500) return "The file path is empty or too long.";
+        try
+        {
+            var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(candidate));
+            var roots = new[] { "downloads", "documents", "desktop" }.Select(GetStandardFolder).Where(path => path is not null).Cast<string>().Select(Path.GetFullPath).ToArray();
+            var allowedRoot = roots.FirstOrDefault(root => fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            if (allowedRoot is null)
+                return "Ashley can only read files located under Downloads, Documents, or Desktop.";
+            if (!File.Exists(fullPath) || new FileInfo(fullPath).Length > 32_000) return "That file is missing or larger than the 32 KB reading limit.";
+            if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0) return "Ashley cannot read a linked or redirected file.";
+            for (var directory = new DirectoryInfo(Path.GetDirectoryName(fullPath)!); directory is not null && directory.FullName.StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase); directory = directory.Parent)
+                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0) return "Ashley cannot read through a linked or redirected folder.";
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (extension is not (".txt" or ".md" or ".csv" or ".json" or ".log")) return "Ashley can read plain text files with .txt, .md, .csv, .json, or .log extensions.";
+            return await File.ReadAllTextAsync(fullPath);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return "Ashley could not read that file."; }
+    }
+
+    private string OpenFolder(string requestedFolder, bool report = true)
     {
         var folder = requestedFolder.Trim().ToLowerInvariant();
         var path = folder switch
@@ -205,11 +311,12 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
         {
-            SendActionFeedback("actionError", $"I couldn't find your {requestedFolder} folder.");
-            return;
+            if (report) SendActionFeedback("actionError", $"I couldn't find your {requestedFolder} folder.");
+            return $"I couldn't find your {requestedFolder} folder.";
         }
 
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+        return $"Opened the {requestedFolder} folder.";
     }
 
     private void OpenWebsite(string address)
@@ -236,7 +343,7 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo(uri.ToString()) { UseShellExecute = true });
     }
 
-    private void OpenMusic(string serializedRequest)
+    private async Task<string> OpenMusicAsync(string serializedRequest, bool report = true)
     {
         try
         {
@@ -249,6 +356,20 @@ public partial class MainWindow : Window
             if (song.Length > 300)
                 song = song[..300];
 
+            if (!string.IsNullOrWhiteSpace(browser) && BrowserMusicController.Supports(browser) && song.Length > 0)
+            {
+                var chromiumExecutable = FindBrowserExecutable(browser);
+                if (chromiumExecutable is null)
+                {
+                    var result = $"I couldn't find {browser} installed on this laptop.";
+                    if (report) SendActionFeedback("actionError", result);
+                    return result;
+                }
+                var automated = await BrowserMusicController.SearchAndPlayAsync(chromiumExecutable, browser, song);
+                if (report) SendActionFeedback("actionResult", automated);
+                return automated;
+            }
+
             var url = song.Length == 0
                 ? "https://music.youtube.com/"
                 : $"https://music.youtube.com/search?q={Uri.EscapeDataString(song)}";
@@ -256,7 +377,9 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(browser))
             {
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                return;
+                var result = song.Length == 0 ? "Opened YouTube Music in your default browser." : $"Opened YouTube Music search results for {song} in your default browser. Choose a result to start playback.";
+                if (report) SendActionFeedback("actionResult", result);
+                return result;
             }
 
             var executable = FindBrowserExecutable(browser);
@@ -265,8 +388,8 @@ public partial class MainWindow : Window
                 var shortcut = FindBrowserShortcut(browser);
                 if (shortcut is null)
                 {
-                    SendActionFeedback("actionError", $"I couldn't find {browser} in the installed apps on this laptop.");
-                    return;
+                    if (report) SendActionFeedback("actionError", $"I couldn't find {browser} in the installed apps on this laptop.");
+                    return $"I couldn't find {browser} in the installed apps on this laptop.";
                 }
 
                 Process.Start(new ProcessStartInfo(shortcut)
@@ -274,17 +397,24 @@ public partial class MainWindow : Window
                     UseShellExecute = true,
                     Arguments = $"--new-window \"{url}\""
                 });
-                return;
+                var result = song.Length == 0 ? $"Opened YouTube Music in {browser}." : $"Opened YouTube Music search results for {song} in {browser}. Choose a result to start playback.";
+                if (report) SendActionFeedback("actionResult", result);
+                return result;
             }
 
             var start = new ProcessStartInfo(executable) { UseShellExecute = false };
             start.ArgumentList.Add("--new-window");
             start.ArgumentList.Add(url);
             Process.Start(start);
+            var opened = song.Length == 0 ? $"Opened YouTube Music in {browser}." : $"Opened YouTube Music search results for {song} in {browser}. Choose a result to start playback.";
+            if (report) SendActionFeedback("actionResult", opened);
+            return opened;
         }
         catch (Exception error)
         {
-            SendActionFeedback("actionError", $"I couldn't open YouTube Music: {error.Message}");
+            var message = $"I couldn't open YouTube Music: {error.Message}";
+            if (report) SendActionFeedback("actionError", message);
+            return message;
         }
     }
 
@@ -353,7 +483,7 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private void OpenWindowsSettings(string page)
+    private string OpenWindowsSettings(string page, bool report = true)
     {
         var settingsPage = page.Trim().ToLowerInvariant() switch
         {
@@ -367,15 +497,16 @@ public partial class MainWindow : Window
 
         if (settingsPage is null)
         {
-            SendActionFeedback("actionError", "I can open sound, display, Bluetooth, Wi-Fi, or the main Windows Settings page.");
-            return;
+            if (report) SendActionFeedback("actionError", "I can open sound, display, Bluetooth, Wi-Fi, or the main Windows Settings page.");
+            return "That Settings page is not supported.";
         }
 
         var uri = settingsPage.Length == 0 ? "ms-settings:" : $"ms-settings:{settingsPage}";
         Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+        return $"Opened Windows {page} settings.";
     }
 
-    private void SetVolume(string command)
+    private string SetVolume(string command, bool report = true)
     {
         using var enumerator = new MMDeviceEnumerator();
         using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
@@ -400,13 +531,20 @@ public partial class MainWindow : Window
         }
         else
         {
-            SendActionFeedback("actionError", "Say volume up, volume down, mute, unmute, or set volume to a number from 0 to 100.");
-            return;
+            if (report) SendActionFeedback("actionError", "Say volume up, volume down, mute, unmute, or set volume to a number from 0 to 100.");
+            return "That volume setting is invalid. Use a value from 0 to 100, up, down, mute, or unmute.";
         }
-
+        return normalized switch
+        {
+            "mute" => "Muted the system volume.",
+            "unmute" => "Unmuted the system volume.",
+            "up" => "Turned the system volume up.",
+            "down" => "Turned the system volume down.",
+            _ => $"Set the system volume to {normalized} percent."
+        };
     }
 
-    private void OpenInstalledApp(string requestedName)
+    private string OpenInstalledApp(string requestedName, bool report = true)
     {
         var requested = NormalizeAppName(requestedName);
         var startMenuRoots = new[]
@@ -427,23 +565,25 @@ public partial class MainWindow : Window
 
         if (match is null)
         {
-            SendActionFeedback("actionError", $"I couldn't find {requestedName} in the Start menu. Try the app's full name.");
-            return;
+            if (report) SendActionFeedback("actionError", $"I couldn't find {requestedName} in the Start menu. Try the app's full name.");
+            return $"I couldn't find {requestedName} in the Start menu.";
         }
 
         try
         {
             Process.Start(new ProcessStartInfo(match.Path) { UseShellExecute = true });
             var displayName = Path.GetFileNameWithoutExtension(match.Path);
-            SendActionFeedback("actionResult", $"Opening {displayName}.");
+            if (report) SendActionFeedback("actionResult", $"Opening {displayName}.");
+            return $"Opened {displayName}.";
         }
         catch (Exception error)
         {
-            SendActionFeedback("actionError", $"I found {Path.GetFileNameWithoutExtension(match.Path)}, but Windows couldn't open it: {error.Message}");
+            if (report) SendActionFeedback("actionError", $"I found {Path.GetFileNameWithoutExtension(match.Path)}, but Windows couldn't open it: {error.Message}");
+            return $"Windows could not open {Path.GetFileNameWithoutExtension(match.Path)}.";
         }
     }
 
-    private void CloseInstalledApp(string requestedName)
+    private string CloseInstalledApp(string requestedName, bool report = true)
     {
         var key = NormalizeAppName(requestedName);
         var processName = key switch
@@ -465,8 +605,8 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(processName))
         {
-            SendActionFeedback("actionError", "Tell me the name of the app you want me to close.");
-            return;
+            if (report) SendActionFeedback("actionError", "Tell me the name of the app you want me to close.");
+            return "Tell me the name of the app you want to close.";
         }
 
         var closeRequests = 0;
@@ -484,10 +624,12 @@ public partial class MainWindow : Window
             }
         }
 
-        if (closeRequests > 0)
-            SendActionFeedback("actionResult", $"Asked {requestedName} to close.");
-        else
-            SendActionFeedback("actionError", $"I couldn't find an open {requestedName} window to close.");
+        if (report)
+        {
+            if (closeRequests > 0) SendActionFeedback("actionResult", $"Asked {requestedName} to close.");
+            else SendActionFeedback("actionError", $"I couldn't find an open {requestedName} window to close.");
+        }
+        return closeRequests > 0 ? $"Asked {requestedName} to close." : $"I couldn't find an open {requestedName} window.";
     }
 
     private static string NormalizeAppName(string name)

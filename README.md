@@ -7,7 +7,8 @@ Ashley is a voice-controlled Windows desktop assistant prototype with a futurist
 - A desktop interface with two switchable HUD views.
 - Online English speech recognition by default, with an optional local English speech model.
 - The “Hey Ashley” wake phrase and unlimited follow-up commands until you say “stop listening” or press Stop.
-- YouTube Music search in your default browser or another installed browser named in the command.
+- YouTube Music search in the default browser, with a first-result playback attempt in an Ashley-controlled Brave, Edge, or Chrome profile when you name one.
+- Optional OpenAI command understanding and conversation, with a fixed set of validated desktop actions.
 - Typed commands when speech is unavailable.
 - Native Windows actions for apps, folders, websites, settings, and volume.
 - Optional launch at Windows sign-in.
@@ -27,7 +28,7 @@ The build creates `AshleyApp-HUD-Latest\Ashley.exe`. Once built, double-click th
 
 Ashley starts in **Online** speech mode. Online recognition needs internet access and sends microphone audio to Edge's speech service for transcription. Ashley requests English (South Africa) and falls back to English (US) if that service does not support it. Choose **Offline** in the HUD to use the bundled Vosk English model locally. The offline model is included in this repository; offline recognition itself does not send microphone audio online.
 
-Speech recognition only turns speech into text. Ashley's commands are a defined set of desktop actions; she does not yet have a general-purpose AI reasoning service. Ashley pauses listening while speaking.
+Speech recognition turns speech into text. In the desktop app, commands that do not match a built-in phrase can be sent to OpenAI for intent recognition and conversation. Select **AI Setup** in the HUD and add an OpenAI API key; API use may be billed separately from ChatGPT. Ashley stores the key in Windows Credential Manager and sends command text to the OpenAI Responses API with response storage disabled. The microphone audio still uses the separate speech-recognition service selected in the HUD.
 
 ## Commands
 
@@ -43,11 +44,15 @@ Say “Hey Ashley,” followed by a command, then continue giving follow-up comm
 - “Play music on Brave,” “play Blinding Lights on Opera GX,” or “play this song” and then say the title.
 - “Help” / “What can you do?”
 
-Song requests open matching YouTube Music results in the selected browser; choose a result there to start playback. Ashley can open apps that appear in a Windows Start menu shortcut. Closing an app sends a normal close request and does not force-terminate it. Other requests need an explicit command ability before Ashley can perform them.
+For Brave, Edge, or Chrome, a named song request starts a separate Ashley-controlled browser profile with remote debugging bound to localhost, opens YouTube Music search, and attempts to click the first result. The separate profile may need to be signed in to YouTube Music. Site changes, consent screens, autoplay restrictions, or account state can prevent playback; in that case choose the result or press Play in the open Ashley profile. A request using the system default browser or a different browser opens search results without the playback attempt.
+
+Ashley can also answer ordinary questions, open/close apps, adjust volume, search, open standard folders/settings, report basic uptime and disk/memory information, list files in standard folders, and read small text files under Downloads, Documents, or Desktop. Closing an app sends a normal close request and does not force-terminate it. Ashley does not run model-written PowerShell, delete or move files, change security settings, or claim access to arbitrary system tasks.
 
 ## Project files
 
 - `DesktopApp\` contains the native Windows desktop app source.
+- `DesktopApp\AssistantBrain.cs` contains the online Responses API client and Windows Credential Manager storage.
+- `DesktopApp\BrowserMusicController.cs` handles the limited Chromium DevTools playback flow.
 - `DesktopApp\models\` contains the bundled offline Vosk model.
 - `Jarvis.html` contains the HUD and command recognition logic.
 - `Build-Ashley.ps1` builds the Windows app; `Start-Ashley.ps1` starts it.

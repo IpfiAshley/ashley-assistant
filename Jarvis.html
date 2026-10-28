@@ -25,6 +25,7 @@
     .speech-switch { display: flex; gap: 2px; padding: 3px; border: 1px solid #59dfff35; background: #06121d; }
     .speech-switch button { min-width: 66px; min-height: 28px; padding: 5px 8px; border: 1px solid transparent; color: #7796a8; background: transparent; box-shadow: none; font: .57rem Consolas, monospace; letter-spacing: .08em; }
     .speech-switch button[aria-pressed="true"] { color: #071720; border-color: #6ae9ff; background: linear-gradient(120deg, #96f3ff, #32b8d9); box-shadow: 0 0 13px #45dfff52; }
+    .ai-setup { min-width: 74px; min-height: 32px; padding: 6px 9px; border: 1px solid #ff9d5b72; color: #ffd4b1; background: #25180f; box-shadow: none; font: .57rem Consolas, monospace; letter-spacing: .08em; }
     .dot { width: 7px; height: 7px; border-radius: 50%; background: #62eeac; box-shadow: 0 0 10px #62eeaca8; }
     .dashboard { min-height: 0; display: grid; grid-template-columns: minmax(205px, .76fr) minmax(330px, 1.3fr) minmax(205px, .76fr); gap: 14px; }
     .rail { min-width: 0; display: flex; flex-direction: column; gap: 11px; padding: 5px 0; }
@@ -184,6 +185,7 @@
       <div class="top-readout"><div>System time<b id="clock">--:--:--</b></div><div>Voice engine<b id="engineReadout">EDGE ONLINE</b></div><div>Audio processing<b id="privacyReadout">SENT ONLINE</b></div></div>
       <div class="mode-switch" role="group" aria-label="Choose Ashley interface"><button id="hudMode" type="button" aria-pressed="true">HUD</button><button id="orbMode" type="button" aria-pressed="false">ORBIT</button></div>
       <div class="speech-switch" role="group" aria-label="Choose speech recognition"><button id="onlineSpeech" type="button" aria-pressed="true">ONLINE</button><button id="offlineSpeech" type="button" aria-pressed="false">OFFLINE</button></div>
+      <button class="ai-setup" id="aiSetup" type="button" title="Connect an OpenAI API key">AI SETUP</button>
     </header>
     <section class="dashboard" aria-label="Ashley command dashboard">
       <aside class="rail left-rail">
@@ -199,7 +201,7 @@
           <button id="start"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 1 0-7 0v5A3.5 3.5 0 0 0 12 15Z" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3m-4 0h8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Start listening</button>
           <button id="stop" class="secondary" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.7"/></svg>Stop</button>
         </div>
-        <div class="session-line"><span>Wake phrase</span><b>HEY ASHLEY</b><span>30 SEC</span></div>
+        <div class="session-line"><span>Wake phrase</span><b>HEY ASHLEY</b><span>UNTIL STOP</span></div>
         <form class="text-command" id="textCommandForm" aria-label="Type a command for Ashley">
           <input id="textCommandInput" type="text" autocomplete="off" placeholder="Type a command…" aria-label="Command for Ashley">
           <button type="submit">Send</button>
@@ -426,7 +428,8 @@
             say(`I can open ${target} by name from the desktop app.`);
           }
         } else {
-          say(`I heard ${command}. Try asking in another way, or say “help” for examples.`);
+          if (nativeAshley) await localAction('aiCommand', command);
+          else say(`I heard ${command}. Online AI commands are available in the Ashley desktop app.`);
         }
       }
     }
@@ -568,6 +571,11 @@
       statusBox.textContent = 'Stopped listening.';
     });
 
+    document.getElementById('aiSetup').addEventListener('click', () => {
+      if (nativeAshley) window.chrome.webview.postMessage({ action: 'aiSetup' });
+      else say('AI setup is available in the Ashley desktop app.');
+    });
+
     document.querySelectorAll('.launcher-button').forEach(button => {
       button.addEventListener('click', () => handleCommand(button.dataset.command || '').catch(error => say(error.message)));
     });
@@ -587,7 +595,7 @@
       window.chrome.webview.addEventListener('message', event => {
         const message = event.data;
         if (message?.type === 'transcript') onTranscript(message.text || '', message.alternatives || []);
-        else if (message?.type === 'status' && speechMode === 'offline') statusBox.textContent = message.text || '';
+        else if (message?.type === 'status') statusBox.textContent = message.text || '';
         else if (message?.type === 'actionResult') say(message.text || 'Done.');
         else if (message?.type === 'actionError') say(message.text || 'I could not complete that action.');
         else if (message?.type === 'autoStartListening') {
