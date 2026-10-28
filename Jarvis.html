@@ -328,18 +328,17 @@
       } else if (/^(?:(?:what(?:'s| is) )?(?:the )?(?:date|day)(?: is it)?(?: today| now)?|tell me (?:the )?(?:current )?(?:date|day)|what day is it|what is today's date|today(?:'s| is the) date|current (?:date|day)|date|day)$/.test(text)) {
         say(new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
       } else if (/^(help|what can you do|what commands do you know|list commands|show commands|what can i ask you)$/.test(text)) {
-        say('I can tell you the time or date, play music or search for a song in YouTube Music, open or close apps, open folders and websites, open Windows settings, and change or mute your volume. I will keep listening until you say stop listening or press Stop.');
+        say('I can tell you the time or date, play music or search for a song in YouTube Music in your default browser or another installed browser you name, open or close apps, open folders and websites, open Windows settings, and change or mute your volume. I will keep listening until you say stop listening or press Stop.');
       } else {
         const closeApp = text.match(/^(?:close|quit|exit)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:app|application|browser))?$/);
         if (closeApp) { await localAction('closeApp', closeApp[1].trim()); return; }
 
-        const browserNamePattern = '(brave(?: browser)?|edge|microsoft edge|chrome|google chrome|firefox|browser)';
-        const browserFromName = name => /^(brave)/.test(name) ? 'Brave'
-          : /^(edge|microsoft edge)$/.test(name) ? 'Edge'
-          : /^(chrome|google chrome)$/.test(name) ? 'Chrome'
-          : name === 'firefox' ? 'Firefox' : null;
-        const musicApp = text.match(new RegExp(`^(?:play|start|open|launch)\\s+(?:(?:some|my|the)\\s+)?music(?:\\s+(?:on|in)\\s+(?:the\\s+)?${browserNamePattern})?$`));
-        const musicWithoutTitle = text.match(new RegExp(`^(?:play|put on|listen to)\\s+(?:(?:the|a|this)\\s+)?(?:song|music)(?:\\s+(?:on|in)\\s+(?:the|my)\\s+)?${browserNamePattern}?$`));
+        const browserFromName = name => {
+          const browser = name?.trim().replace(/^(?:the|my)\s+/, '').replace(/\s+browser$/, '').trim();
+          return browser && browser !== 'default' ? browser : null;
+        };
+        const musicApp = text.match(/^(?:play|start|open|launch)\s+(?:(?:some|my|the)\s+)?music(?:\s+(?:on|in)\s+(?:(?:the|my)\s+)?(.+))?$/);
+        const musicWithoutTitle = text.match(/^(?:play|put on|listen to)\s+(?:(?:the|a|this)\s+)?(?:song|music)(?:\s+(?:on|in)\s+(?:(?:the|my)\s+)?(.+))?$/);
         if (musicApp) {
           const browser = musicApp[1] ? browserFromName(musicApp[1]) : null;
           await localAction('playMusic', JSON.stringify({ song: '', browser }));
@@ -351,7 +350,7 @@
           say('Which song would you like to hear?');
           return;
         }
-        const songOnBrowser = text.match(new RegExp(`^(?:play|put on|listen to)\\s+(.+?)\\s+(?:on|in)\\s+(?:the\\s+)?${browserNamePattern}$`));
+        const songOnBrowser = text.match(/^(?:play|put on|listen to)\s+(.+?)\s+(?:on|in)\s+(?:(?:the|my)\s+)?(.+)$/);
         if (songOnBrowser) {
           const browser = browserFromName(songOnBrowser[2]);
           await localAction('playMusic', JSON.stringify({ song: songOnBrowser[1].trim(), browser }));

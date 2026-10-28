@@ -7,7 +7,7 @@ Ashley is a voice-controlled Windows desktop assistant prototype with a futurist
 - A desktop interface with two switchable HUD views.
 - Online English speech recognition by default, with an optional local English speech model.
 - The “Hey Ashley” wake phrase and unlimited follow-up commands until you say “stop listening” or press Stop.
-- YouTube Music search in your default browser or a selected browser (Brave, Edge, Chrome, or Firefox).
+- YouTube Music search in your default browser or another installed browser named in the command.
 - Typed commands when speech is unavailable.
 - Native Windows actions for apps, folders, websites, settings, and volume.
 - Optional launch at Windows sign-in.
@@ -40,7 +40,7 @@ Say “Hey Ashley,” followed by a command, then continue giving follow-up comm
 - “Open Sound settings” or “show Wi-Fi settings.”
 - “Mute,” “turn the volume up,” or “set volume to fifty percent.”
 - “Search for Call of Duty Mobile.”
-- “Play music on Brave,” “play Blinding Lights on Brave,” or “play this song” and then say the title.
+- “Play music on Brave,” “play Blinding Lights on Opera GX,” or “play this song” and then say the title.
 - “Help” / “What can you do?”
 
 Song requests open matching YouTube Music results in the selected browser; choose a result there to start playback. Ashley can open apps that appear in a Windows Start menu shortcut. Closing an app sends a normal close request and does not force-terminate it. Other requests need an explicit command ability before Ashley can perform them.

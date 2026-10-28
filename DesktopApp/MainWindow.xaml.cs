@@ -262,7 +262,18 @@ public partial class MainWindow : Window
             var executable = FindBrowserExecutable(browser);
             if (executable is null)
             {
-                SendActionFeedback("actionError", $"I couldn't find {browser} installed on this laptop.");
+                var shortcut = FindBrowserShortcut(browser);
+                if (shortcut is null)
+                {
+                    SendActionFeedback("actionError", $"I couldn't find {browser} in the installed apps on this laptop.");
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo(shortcut)
+                {
+                    UseShellExecute = true,
+                    Arguments = $"--new-window \"{url}\""
+                });
                 return;
             }
 
@@ -312,6 +323,34 @@ public partial class MainWindow : Window
         };
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string? FindBrowserShortcut(string browser)
+    {
+        var requested = NormalizeAppName(browser);
+        if (requested.Length == 0)
+            return null;
+
+        var roots = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs")
+        };
+
+        foreach (var root in roots.Where(Directory.Exists))
+        {
+            try
+            {
+                var match = Directory.EnumerateFiles(root, "*.lnk", SearchOption.AllDirectories)
+                    .FirstOrDefault(path => NormalizeAppName(Path.GetFileNameWithoutExtension(path)) == requested);
+                if (match is not null)
+                    return match;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        return null;
     }
 
     private void OpenWindowsSettings(string page)
@@ -455,7 +494,7 @@ public partial class MainWindow : Window
     {
         var words = name.ToLowerInvariant()
             .Split(new[] { ' ', '-', '_', '.', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
-            .Where(word => word is not ("microsoft" or "application" or "app" or "the"));
+            .Where(word => word is not ("microsoft" or "application" or "app" or "browser" or "the"));
         return string.Concat(words.Select(word => new string(word.Where(char.IsLetterOrDigit).ToArray())));
     }
 
