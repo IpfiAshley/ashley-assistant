@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -193,6 +194,14 @@ public partial class MainWindow : Window
                     CloseInstalledApp(query.Trim());
                     break;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            SendActionFeedback("actionError", "Ashley’s online AI is taking too long to answer. Your basic commands still work; try that question again in a moment.");
+        }
+        catch (HttpRequestException)
+        {
+            SendActionFeedback("actionError", "Ashley couldn’t reach the online AI just now. Basic commands like music, apps, volume, and time still work.");
         }
         catch (Exception error)
         {

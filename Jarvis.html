@@ -240,6 +240,7 @@
     let pendingMusicBrowser;
     let speaking = false;
     let speechTurn = 0;
+    let commandQueue = Promise.resolve();
     let restartTimer;
 
     function updateClock() {
@@ -309,13 +310,22 @@
       if (!response.ok) throw new Error('The local assistant could not complete that action.');
     }
 
-    async function handleCommand(command) {
-      const text = command.trim().toLowerCase()
+    function normalizeCommandText(command) {
+      return command.trim().toLowerCase()
         .replace(/[.!?;:,]+/g, ' ')
         .replace(/^(please\s+)?(can|could|would|will) you\s+(please\s+)?/, '')
         .replace(/^(i'd like you to|i want you to|please)\s+/, '')
         .replace(/\s+(please|for me)$/, '')
         .replace(/\s+/g, ' ').trim();
+    }
+
+    function looksLikeDirectCommand(command) {
+      const text = normalizeCommandText(command);
+      return /^(?:play|plays|please|put on|listen to|start playing|open|launch|start|run|show|bring up|turn on|close|quit|exit|search for|search the web for|google|look up|find online|find me|set volume|turn volume|volume|mute|unmute|what time|what is the time|what(?:'s| is) the date|what day|tell me the time|stop listening)\b/.test(text);
+    }
+
+    async function handleCommand(command) {
+      const text = normalizeCommandText(command);
       if (!text) return;
       if (pendingMusicBrowser !== undefined) {
         const browser = pendingMusicBrowser;
@@ -342,7 +352,7 @@
         // Handle common spoken forms such as “play As It Was on YouTube Music on the Brave app”.
         // The optional service name is part of the destination, not part of the song title.
         const knownBrowserNames = '(?:brave(?: browser)?|microsoft edge|edge|google chrome|chrome|firefox)';
-        const namedMusicRequest = text.match(new RegExp('^(?:play|put on|listen to)\\s+(.+?)\\s+(?:on|in)\\s+(?:(?:youtube music|youtube|yt music)\\s+(?:on|in)\\s+)?(?:(?:the|my)\\s+)?(?:app\\s+)?(' + knownBrowserNames + ')$'));
+        const namedMusicRequest = text.match(new RegExp('^(?:play|plays|please|put on|listen to|start playing)\\s+(?:(?:the song|song called)\\s+)?(.+?)\\s+(?:on|in)\\s+(?:(?:youtube music|youtube|yt music)\\s+(?:on|in)\\s+)?(?:(?:the|my)\\s+)?(?:app\\s+)?(' + knownBrowserNames + ')$'));
         const misheardAsItWas = text.match(new RegExp('^(?:such as it was|play it as it was|it as it was|as it was)\\s+(?:on|in)\\s+(?:(?:youtube music|youtube|yt music)\\s+(?:on|in)\\s+)?(?:(?:the|my)\\s+)?(?:app\\s+)?(' + knownBrowserNames + ')$'));
         if (namedMusicRequest || misheardAsItWas) {
           let song = namedMusicRequest ? namedMusicRequest[1].trim() : 'As It Was';
@@ -454,7 +464,9 @@
         stopButton.click();
         return;
       }
-      handleCommand(command).catch(error => say(error.message));
+      commandQueue = commandQueue
+        .then(() => handleCommand(command))
+        .catch(error => say(error.message));
     }
 
     function onTranscript(transcript, alternatives = []) {
@@ -462,7 +474,9 @@
       if (!heard) return;
       heardBox.textContent = `Heard: ${heard}`;
       const wakePattern = /^\s*hey[\s,]+(ashley|ashly|ashleigh|ashlee|ash lee|shelly|shall we|actually)\b[\s,.:;!?-]*(.*)$/i;
-      const wake = [heard, ...(Array.isArray(alternatives) ? alternatives : [])]
+      const candidates = [...new Set([heard, ...(Array.isArray(alternatives) ? alternatives : [])]
+        .map(candidate => String(candidate || '').trim()).filter(Boolean))];
+      const wake = candidates
         .map(candidate => candidate.match(wakePattern))
         .find(Boolean);
       if (wake) {
@@ -474,7 +488,12 @@
         }
         return;
       }
-      if (commandSessionActive) dispatchRecognizedCommand(heard);
+      if (commandSessionActive) {
+        // Speech engines often return a corrected command as an alternate transcript.
+        // Prefer a candidate that looks like an explicit action over a misheard primary.
+        const actionCandidate = candidates.find(looksLikeDirectCommand);
+        dispatchRecognizedCommand(actionCandidate || heard);
+      }
     }
 
     function startRecognition() {
@@ -491,7 +510,7 @@
 
     if (SpeechRecognition) {
       recognition = new SpeechRecognition();
-      recognition.lang = 'en-ZA'; recognition.continuous = true; recognition.interimResults = false; recognition.maxAlternatives = 3;
+      recognition.lang = 'en-ZA'; recognition.continuous = true; recognition.interimResults = false; recognition.maxAlternatives = 5;
       if ('processLocally' in recognition) recognition.processLocally = false;
       recognition.onstart = () => {
         statusBox.textContent = commandSessionActive

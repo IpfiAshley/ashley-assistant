@@ -11,7 +11,7 @@ namespace Ashley.Desktop;
 internal sealed class AssistantBrain
 {
     internal const string CredentialTarget = "Ashley.Gemini.ApiKey";
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(45) };
+    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(15) };
     private const string ToolDefinitions = """
     [
       {"type":"function","name":"open_app","description":"Open an installed desktop app by its Start menu name.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}},
@@ -87,8 +87,9 @@ internal sealed class AssistantBrain
                 tools = new[] { new { functionDeclarations = declarations } },
                 toolConfig = new { functionCallingConfig = new { mode = "AUTO" } }
             }), Encoding.UTF8, "application/json");
-            using var response = await Client.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var response = await Client.SendAsync(request, timeout.Token);
+            var body = await response.Content.ReadAsStringAsync(timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
                 var detail = "The Gemini API returned an error.";
