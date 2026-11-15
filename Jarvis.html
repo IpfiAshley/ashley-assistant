@@ -25,7 +25,7 @@
     .speech-switch { display: flex; gap: 2px; padding: 3px; border: 1px solid #59dfff35; background: #06121d; }
     .speech-switch button { min-width: 66px; min-height: 28px; padding: 5px 8px; border: 1px solid transparent; color: #7796a8; background: transparent; box-shadow: none; font: .57rem Consolas, monospace; letter-spacing: .08em; }
     .speech-switch button[aria-pressed="true"] { color: #071720; border-color: #6ae9ff; background: linear-gradient(120deg, #96f3ff, #32b8d9); box-shadow: 0 0 13px #45dfff52; }
-    .ai-setup { min-width: 74px; min-height: 32px; padding: 6px 9px; border: 1px solid #ff9d5b72; color: #ffd4b1; background: #25180f; box-shadow: none; font: .57rem Consolas, monospace; letter-spacing: .08em; }
+    .local-badge { padding: 8px 10px; border: 1px solid #68dfff35; color: #8cecff; background: #68dfff08; font: .57rem Consolas, monospace; letter-spacing: .08em; white-space: nowrap; }
     .dot { width: 7px; height: 7px; border-radius: 50%; background: #62eeac; box-shadow: 0 0 10px #62eeaca8; }
     .dashboard { min-height: 0; display: grid; grid-template-columns: minmax(205px, .76fr) minmax(330px, 1.3fr) minmax(205px, .76fr); gap: 14px; }
     .rail { min-width: 0; display: flex; flex-direction: column; gap: 11px; padding: 5px 0; }
@@ -182,10 +182,10 @@
         <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.8 14.2 9.8 21.2 12l-7 2.2-2.2 7-2.2-7L2.8 12l7-2.2L12 2.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div>
         <div><p class="brand-name">ASHLEY</p><p class="brand-caption">Personal AI command interface</p></div>
       </div>
-      <div class="top-readout"><div>System time<b id="clock">--:--:--</b></div><div>Voice engine<b id="engineReadout">EDGE ONLINE</b></div><div>Audio processing<b id="privacyReadout">SENT ONLINE</b></div></div>
+      <div class="top-readout"><div>System time<b id="clock">--:--:--</b></div><div>Voice engine<b id="engineReadout">EDGE ONLINE</b></div><div>Microphone audio<b id="privacyReadout">SENT ONLINE</b></div></div>
       <div class="mode-switch" role="group" aria-label="Choose Ashley interface"><button id="hudMode" type="button" aria-pressed="true">HUD</button><button id="orbMode" type="button" aria-pressed="false">ORBIT</button></div>
       <div class="speech-switch" role="group" aria-label="Choose speech recognition"><button id="onlineSpeech" type="button" aria-pressed="true">ONLINE</button><button id="offlineSpeech" type="button" aria-pressed="false">OFFLINE</button></div>
-      <button class="ai-setup" id="aiSetup" type="button" title="Connect a Gemini API key">AI SETUP</button>
+      <div class="local-badge" title="Basic laptop commands run locally">LOCAL COMMANDS</div>
     </header>
     <section class="dashboard" aria-label="Ashley command dashboard">
       <aside class="rail left-rail">
@@ -340,7 +340,7 @@
       } else if (/^(?:(?:what(?:'s| is) )?(?:the )?(?:date|day)(?: is it)?(?: today| now)?|tell me (?:the )?(?:current )?(?:date|day)|what day is it|what is today's date|today(?:'s| is the) date|current (?:date|day)|date|day)$/.test(text)) {
         say(new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
       } else if (/^(help|what can you do|what commands do you know|list commands|show commands|what can i ask you)$/.test(text)) {
-        say('I can tell you the time or date, play music or search for a song in YouTube Music in your default browser or another installed browser you name, open or close apps, open folders and websites, open Windows settings, and change or mute your volume. I will keep listening until you say stop listening or press Stop.');
+        say('I can tell you the time or date, play a song on a browser you name, open or close apps, open folders and websites, change or mute volume, and search the web. I will keep listening until you say stop listening or press Stop.');
       } else {
         const closeApp = text.match(/^(?:close|quit|exit)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:app|application|browser))?$/);
         if (closeApp) { await localAction('closeApp', closeApp[1].trim()); return; }
@@ -453,8 +453,7 @@
             say(`I can open ${target} by name from the desktop app.`);
           }
         } else {
-          if (nativeAshley) await localAction('aiCommand', command);
-          else say(`I heard ${command}. Online AI commands are available in the Ashley desktop app.`);
+          say(`I heard ${command}. I don't know that command yet. Try “play Snap on Brave,” “open Calculator,” “what time is it,” or “set volume to 50.”`);
         }
       }
     }
@@ -603,11 +602,6 @@
       recognitionRunning = false;
       startButton.disabled = false; stopButton.disabled = true; orb.classList.remove('listening', 'speaking');
       statusBox.textContent = 'Stopped listening.';
-    });
-
-    document.getElementById('aiSetup').addEventListener('click', () => {
-      if (nativeAshley) window.chrome.webview.postMessage({ action: 'aiSetup' });
-      else say('AI setup is available in the Ashley desktop app.');
     });
 
     document.querySelectorAll('.launcher-button').forEach(button => {

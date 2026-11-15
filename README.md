@@ -8,7 +8,7 @@ Ashley is a voice-controlled Windows desktop assistant prototype with a futurist
 - Online English speech recognition by default, with an optional local English speech model.
 - The “Hey Ashley” wake phrase and unlimited follow-up commands until you say “stop listening” or press Stop.
 - YouTube Music search in the default browser, with a first-result playback attempt in an Ashley-controlled Brave, Edge, or Chrome profile when you name one.
-- Optional Gemini command understanding and conversation, with a fixed set of validated desktop actions.
+- Local command matching for common laptop actions; unrecognized phrases get a quick example instead of an online AI request.
 - Typed commands when speech is unavailable.
 - Native Windows actions for apps, folders, websites, settings, and volume.
 - Optional launch at Windows sign-in.
@@ -28,7 +28,7 @@ The build creates `AshleyApp-HUD-Latest\Ashley.exe`. Once built, double-click th
 
 Ashley starts in **Online** speech mode. Online recognition needs internet access and sends microphone audio to Edge's speech service for transcription. Ashley requests English (South Africa) and falls back to English (US) if that service does not support it. Choose **Offline** in the HUD to use the bundled Vosk English model locally. The offline model is included in this repository; offline recognition itself does not send microphone audio online.
 
-Speech recognition turns speech into text. In the desktop app, commands that do not match a built-in phrase can be sent to Gemini for intent recognition and conversation. Select **AI Setup** in the HUD and add a Gemini API key from Google AI Studio. Ashley stores the key in Windows Credential Manager and uses the Gemini `generateContent` endpoint. Google's free-tier content-use policy may allow submitted content to improve its products, so do not send sensitive information. The microphone audio still uses the separate speech-recognition service selected in the HUD.
+Speech recognition turns speech into text. Basic commands are matched and run on the laptop without a Gemini request or API key. Online recognition still sends microphone audio to Edge's speech service; choose **Offline** if you want speech recognition to stay on the device. Conversation and online AI command understanding are paused while the basic voice commands are being improved.
 
 ## Commands
 
@@ -46,12 +46,11 @@ Say “Hey Ashley,” followed by a command, then continue giving follow-up comm
 
 For Brave, Edge, or Chrome, a named song request opens YouTube Music in that browser's normal profile, searches for the song, and uses Windows accessibility controls to select a matching result and press Play when those controls are available. This preserves the browser's existing sign-in. YouTube Music updates or accessibility/autoplay restrictions can prevent Ashley from confirming playback; in that case use the open results tab. A request using the system default browser or a different browser opens search results without the playback attempt.
 
-Ashley can also answer ordinary questions, open/close apps, adjust volume, search, open standard folders/settings, report basic uptime and disk/memory information, list files in standard folders, and read small text files under Downloads, Documents, or Desktop. Closing an app sends a normal close request and does not force-terminate it. Ashley does not run model-written PowerShell, delete or move files, change security settings, or claim access to arbitrary system tasks.
+Ashley supports the commands listed above. Closing an app sends a normal close request and does not force-terminate it. Unrecognized wording receives examples of supported commands; Ashley does not send it to a model while online AI is paused.
 
 ## Project files
 
 - `DesktopApp\` contains the native Windows desktop app source.
-- `DesktopApp\AssistantBrain.cs` contains the Gemini API client and Windows Credential Manager storage.
 - `DesktopApp\BrowserMusicController.cs` handles the limited Chromium DevTools playback flow.
 - `DesktopApp\models\` contains the bundled offline Vosk model.
 - `Jarvis.html` contains the HUD and command recognition logic.

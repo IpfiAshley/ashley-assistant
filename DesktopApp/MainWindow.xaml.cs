@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -167,13 +166,6 @@ public partial class MainWindow : Window
                     SendStatus("Opening YouTube Music in your browser profile…");
                     await OpenMusicAsync(query);
                     break;
-                case "aiCommand" when !string.IsNullOrWhiteSpace(query):
-                    await HandleAiCommandAsync(query);
-                    break;
-                case "aiSetup":
-                    if (AssistantBrain.Configure(this))
-                        SendActionFeedback("actionResult", "Online AI is connected. You can ask Ashley in your own words.");
-                    break;
                 case "openSettings" when !string.IsNullOrWhiteSpace(query):
                     OpenWindowsSettings(query);
                     break;
@@ -195,117 +187,10 @@ public partial class MainWindow : Window
                     break;
             }
         }
-        catch (OperationCanceledException)
-        {
-            SendActionFeedback("actionError", "Ashley’s online AI is taking too long to answer. Your basic commands still work; try that question again in a moment.");
-        }
-        catch (HttpRequestException)
-        {
-            SendActionFeedback("actionError", "Ashley couldn’t reach the online AI just now. Basic commands like music, apps, volume, and time still work.");
-        }
         catch (Exception error)
         {
             SendActionFeedback("actionError", $"I couldn't complete that: {error.Message}");
         }
-    }
-
-    private async Task HandleAiCommandAsync(string command)
-    {
-        if (!AssistantBrain.HasApiKey && !AssistantBrain.Configure(this))
-        {
-            SendActionFeedback("actionError", "Online AI is not connected yet. Use the AI setup button when you are ready.");
-            return;
-        }
-
-        SendStatus("Thinking online…");
-        var brain = new AssistantBrain();
-        var answer = await brain.RespondAsync(command, ExecuteAiToolAsync);
-        SendActionFeedback("actionResult", answer);
-    }
-
-    private async Task<string> ExecuteAiToolAsync(string name, JsonElement args)
-    {
-        string Arg(string key) => args.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()?.Trim() ?? "" : "";
-        switch (name)
-        {
-            case "open_app": return OpenInstalledApp(Arg("name"), report: false);
-            case "close_app": return CloseInstalledApp(Arg("name"), report: false);
-            case "set_volume": return SetVolume(Arg("value"), report: false);
-            case "play_music":
-                var song = Arg("song"); var browser = Arg("browser");
-                var request = JsonSerializer.Serialize(new { song, browser = browser.Equals("default", StringComparison.OrdinalIgnoreCase) ? null : browser });
-                return await OpenMusicAsync(request, report: false);
-            case "search_web":
-                var search = Arg("query");
-                if (search.Length is 0 or > 500) return "Search query is empty or too long.";
-                Process.Start(new ProcessStartInfo("https://www.google.com/search?q=" + Uri.EscapeDataString(search)) { UseShellExecute = true });
-                return $"Opened a web search for {search}.";
-            case "open_folder":
-                var folder = Arg("name"); return OpenFolder(folder, report: false);
-            case "open_settings":
-                var page = Arg("page"); return OpenWindowsSettings(page, report: false);
-            case "computer_status": return GetComputerStatus();
-            case "list_files": return ListStandardFolder(Arg("folder"), Arg("contains"));
-            case "read_text_file": return await ReadUserTextFileAsync(Arg("path"));
-            default: return "That action is not available to Ashley.";
-        }
-    }
-
-    private static string GetComputerStatus()
-    {
-        var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
-        var drive = new DriveInfo(Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))!);
-        var freeGb = Math.Round(drive.AvailableFreeSpace / 1024d / 1024 / 1024, 1);
-        var totalGb = Math.Round(drive.TotalSize / 1024d / 1024 / 1024, 1);
-        var physicalMemoryGb = Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024d / 1024 / 1024, 1);
-        return $"Uptime: {(int)uptime.TotalHours} hours {uptime.Minutes} minutes. C: free space: {freeGb} GB of {totalGb} GB. Installed memory: approximately {physicalMemoryGb} GB.";
-    }
-
-    private static string? GetStandardFolder(string name) => name.Trim().ToLowerInvariant() switch
-    {
-        "downloads" => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
-        "documents" => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "desktop" => Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-        "pictures" => Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-        "music" => Environment.GetFolderPath(Environment.SpecialFolder.MyMusic),
-        "videos" => Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
-        _ => null
-    };
-
-    private static string ListStandardFolder(string name, string contains)
-    {
-        var root = GetStandardFolder(name);
-        if (root is null || !Directory.Exists(root)) return "That standard folder is not available.";
-        try
-        {
-            var results = Directory.EnumerateFileSystemEntries(root)
-                .Select(Path.GetFileName)
-                .Where(item => item is not null && item.Contains(contains, StringComparison.OrdinalIgnoreCase))
-                .Take(40).ToArray();
-            return results.Length == 0 ? "No matching files or folders were found." : string.Join("; ", results);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return "Windows did not allow Ashley to list that folder."; }
-    }
-
-    private static async Task<string> ReadUserTextFileAsync(string candidate)
-    {
-        if (candidate.Length == 0 || candidate.Length > 500) return "The file path is empty or too long.";
-        try
-        {
-            var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(candidate));
-            var roots = new[] { "downloads", "documents", "desktop" }.Select(GetStandardFolder).Where(path => path is not null).Cast<string>().Select(Path.GetFullPath).ToArray();
-            var allowedRoot = roots.FirstOrDefault(root => fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-            if (allowedRoot is null)
-                return "Ashley can only read files located under Downloads, Documents, or Desktop.";
-            if (!File.Exists(fullPath) || new FileInfo(fullPath).Length > 32_000) return "That file is missing or larger than the 32 KB reading limit.";
-            if ((File.GetAttributes(fullPath) & FileAttributes.ReparsePoint) != 0) return "Ashley cannot read a linked or redirected file.";
-            for (var directory = new DirectoryInfo(Path.GetDirectoryName(fullPath)!); directory is not null && directory.FullName.StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase); directory = directory.Parent)
-                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0) return "Ashley cannot read through a linked or redirected folder.";
-            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
-            if (extension is not (".txt" or ".md" or ".csv" or ".json" or ".log")) return "Ashley can read plain text files with .txt, .md, .csv, .json, or .log extensions.";
-            return await File.ReadAllTextAsync(fullPath);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return "Ashley could not read that file."; }
     }
 
     private string OpenFolder(string requestedFolder, bool report = true)
