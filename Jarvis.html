@@ -336,15 +336,28 @@
         if (closeApp) { await localAction('closeApp', closeApp[1].trim()); return; }
 
         const browserFromName = name => {
-          const browser = name?.trim().replace(/^(?:the|my)\s+/, '').replace(/\s+browser$/, '').trim();
+          const browser = name?.trim().replace(/^(?:the|my|app)\s+/, '').replace(/\s+browser$/, '').trim();
           return browser && browser !== 'default' ? browser : null;
         };
+        // Handle common spoken forms such as “play As It Was on YouTube Music on the Brave app”.
+        // The optional service name is part of the destination, not part of the song title.
+        const knownBrowserNames = '(?:brave(?: browser)?|microsoft edge|edge|google chrome|chrome|firefox)';
+        const namedMusicRequest = text.match(new RegExp('^(?:play|put on|listen to)\\s+(.+?)\\s+(?:on|in)\\s+(?:(?:youtube music|youtube|yt music)\\s+(?:on|in)\\s+)?(?:(?:the|my)\\s+)?(?:app\\s+)?(' + knownBrowserNames + ')$'));
+        const misheardAsItWas = text.match(new RegExp('^(?:such as it was|play it as it was|it as it was|as it was)\\s+(?:on|in)\\s+(?:(?:youtube music|youtube|yt music)\\s+(?:on|in)\\s+)?(?:(?:the|my)\\s+)?(?:app\\s+)?(' + knownBrowserNames + ')$'));
+        if (namedMusicRequest || misheardAsItWas) {
+          let song = namedMusicRequest ? namedMusicRequest[1].trim() : 'As It Was';
+          if (/^it\s+as it was$/i.test(song)) song = 'As It Was';
+          const browser = browserFromName(namedMusicRequest ? namedMusicRequest[2] : misheardAsItWas[1]);
+          await localAction('playMusic', JSON.stringify({ song, browser }));
+          if (!nativeAshley) say(`Looking for ${song} on YouTube Music in ${browser}.`);
+          return;
+        }
         const musicApp = text.match(/^(?:play|start|open|launch)\s+(?:(?:some|my|the)\s+)?music(?:\s+(?:on|in)\s+(?:(?:the|my)\s+)?(.+))?$/);
         const musicWithoutTitle = text.match(/^(?:play|put on|listen to)\s+(?:(?:the|a|this)\s+)?(?:song|music)(?:\s+(?:on|in)\s+(?:(?:the|my)\s+)?(.+))?$/);
         if (musicApp) {
           const browser = musicApp[1] ? browserFromName(musicApp[1]) : null;
           await localAction('playMusic', JSON.stringify({ song: '', browser }));
-          say(`Opening YouTube Music${browser ? ` in ${browser}` : ''}.`);
+          if (!nativeAshley) say(`Opening YouTube Music${browser ? ` in ${browser}` : ''}.`);
           return;
         }
         if (musicWithoutTitle) {
@@ -356,14 +369,14 @@
         if (songOnBrowser) {
           const browser = browserFromName(songOnBrowser[2]);
           await localAction('playMusic', JSON.stringify({ song: songOnBrowser[1].trim(), browser }));
-          say(`Looking for ${songOnBrowser[1].trim()} on YouTube Music in ${browser}.`);
+          if (!nativeAshley) say(`Looking for ${songOnBrowser[1].trim()} on YouTube Music in ${browser}.`);
           return;
         }
         const songRequest = text.match(/^(?:play|put on|listen to)\s+(?:the song\s+)?(.+)$/);
         if (songRequest && !/^(music|a song|the song|something|a music)$/.test(songRequest[1])) {
           const song = songRequest[1].trim();
           await localAction('playMusic', JSON.stringify({ song, browser: null }));
-          say(`Looking for ${song} on YouTube Music in your default browser.`);
+          if (!nativeAshley) say(`Looking for ${song} on YouTube Music in your default browser.`);
           return;
         }
         if (/^(?:play|put on|listen to)(?:\s+(?:some|a|the))?$/.test(text)) {
@@ -420,7 +433,9 @@
             await localAction('calculator'); say('Opening Calculator.');
           } else if (/^(files|file explorer|explorer|my files)$/.test(target)) {
             await localAction('files'); say('Opening File Explorer.');
-          } else if (/^(browser|web browser|edge|microsoft edge|internet)$/.test(target)) {
+          } else if (/^(brave|brave browser|edge|microsoft edge|chrome|google chrome|firefox)$/.test(target)) {
+            await localAction('openBrowser', target); say(`Opening ${target}.`);
+          } else if (/^(browser|web browser|internet)$/.test(target)) {
             await localAction('browser'); say('Opening your browser.');
           } else if (nativeAshley) {
             await localAction('openApp', target);

@@ -153,6 +153,9 @@ public partial class MainWindow : Window
                 case "files":
                     Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true });
                     break;
+                case "openBrowser" when !string.IsNullOrWhiteSpace(query):
+                    OpenBrowser(query);
+                    break;
                 case "openFolder" when !string.IsNullOrWhiteSpace(query):
                     OpenFolder(query);
                     break;
@@ -160,6 +163,7 @@ public partial class MainWindow : Window
                     OpenWebsite(query);
                     break;
                 case "playMusic":
+                    SendStatus("Opening YouTube Music in your browser profile…");
                     await OpenMusicAsync(query);
                     break;
                 case "aiCommand" when !string.IsNullOrWhiteSpace(query):
@@ -453,6 +457,23 @@ public partial class MainWindow : Window
         };
 
         return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private void OpenBrowser(string requestedBrowser)
+    {
+        var executable = FindBrowserExecutable(requestedBrowser);
+        if (executable is not null)
+        {
+            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+            return;
+        }
+        var shortcut = FindBrowserShortcut(requestedBrowser);
+        if (shortcut is not null)
+        {
+            Process.Start(new ProcessStartInfo(shortcut) { UseShellExecute = true });
+            return;
+        }
+        SendActionFeedback("actionError", $"I couldn't find {requestedBrowser} installed on this laptop.");
     }
 
     private static string? FindBrowserShortcut(string browser)
